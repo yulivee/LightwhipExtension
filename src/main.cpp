@@ -6,6 +6,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <ArtnetWifi.h>
+#include "config.h"
 
 // include some libraries
 #include <NeoPixelBus.h>
@@ -14,8 +15,8 @@
 
 
 // Wifi settings 
-const char* ssid = "";
-const char* password = ""; 
+//const char* ssid = "";
+//const char* password = ""; 
 
 // LED settings
 const int numLeds = 1; // CHANGE FOR YOUR SETUP
