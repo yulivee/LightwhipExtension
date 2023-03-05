@@ -1,6 +1,3 @@
-/*
-  This example may be copied under the terms of the MIT license, see the LICENSE file for details
-*/
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <ArtnetWifi.h>
@@ -8,7 +5,6 @@
 
 // Art-Net settings
 ArtnetWifi artnet;
-const int startUniverse = 0; // CHANGE FOR YOUR SETUP most software this is 1, some software send out artnet first universe as 0.
 
 int pwmPinRed = D7;
 int pwmPinGreen = D6;
