@@ -1,5 +1,6 @@
 ![](FZZQQ3HLDX41CRE.jpg)
 
+The ESP-03 has a 4 Mbit 25Q40BT part which allows for 512 KB of program space. Of that, about 423 KB is available for your own programs.
 
 ## Flash Mode 
 To flash the ESP-03 connect the following:
