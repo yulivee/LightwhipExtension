@@ -1,10 +1,13 @@
 #include "Globals.h"
+extern "C"{
+  #include <RGBColor.h>
+}
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include "DoubleResetDetector.h" // https://github.com/datacute/DoubleResetDetector
 #include <ArtnetWifi.h>
 #include "WiFiManagerKT.h"
-#include "config.h"
+//#include "config.h"
 #include <ArduinoJson.h> //https://github.com/bblanchon/ArduinoJson
 #include <FS.h>          //this needs to be first
 #include <LittleFS.h>
@@ -12,53 +15,47 @@
 // Art-Net settings
 ArtnetWifi artnet;
 
-int pwmPinRed = D7;
+//                   R,  G,  B
+rgb_pin led_pins = {D5, D6, D7};
+
+/*
+int pwmPinRed = D5;
 int pwmPinGreen = D6;
-int pwmPinBlue = D5;
+int pwmPinBlue = D7;
+*/
 
 bool shouldSaveConfig = false;
 DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
 iData whipConfigData;
 
-// connect to wifi – returns true if successful or false if not
-boolean ConnectWifi(void)
+void writeColor(rgb_color color)
 {
-  boolean state = true;
-  int i = 0;
-
-  WiFi.begin(ssid, password);
-  Serial.println("");
-  Serial.println("Connecting to WiFi");
-
-  // Wait for connection
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-    if (i > 20)
-    {
-      state = false;
-      break;
-    }
-    i++;
-  }
-  if (state)
-  {
-    Serial.println("");
-    Serial.print("Connected to ");
-    Serial.println(ssid);
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-  }
-  else
-  {
-    Serial.println("");
-    Serial.println("Connection failed.");
-  }
-
-  return state;
+  analogWrite(led_pins.red, color.red);
+  analogWrite(led_pins.green, color.green);
+  analogWrite(led_pins.blue, color.blue);
 }
+
+void flashLED(led_color color, int flashes)
+{
+
+  rgb_color rgbcolor = lookup_color(color);
+  //rgb_color rgb_black = lookup_color(black);
+  rgb_color rgb_black = {0,0,0};
+
+  for (int i = 0; i < flashes; i++)
+  {
+    writeColor(rgbcolor);
+    delay(300);
+    writeColor(rgb_black);
+    delay(200);
+  }
+}
+
+void lightUpLED(led_color color)
+{
+  rgb_color rgbcolor = lookup_color(color);
+  writeColor(rgbcolor);
+} 
 
 bool formatLittleFS()
 {
@@ -110,6 +107,7 @@ bool saveConfig()
     LittleFS.gc();
     LittleFS.end();
     CONSOLELN(F("\nsaved successfully"));
+    flashLED(green, 3);
     return true;
   }
 }
@@ -217,15 +215,17 @@ bool startConfiguration()
   wifiManager.setSaveConfigCallback(saveConfigCallback);
   wifiManager.setBreakAfterConfig(true);
 
-  //WiFiManagerParameter custom_name("name", "Lightwhip Name", htmlencode(whipConfigData.name).c_str(), TKIDSIZE);
+  // WiFiManagerParameter custom_name("name", "Lightwhip Name", htmlencode(whipConfigData.name).c_str(), TKIDSIZE);
   WiFiManagerParameter custom_universe("universe", "ArtNet Universe Number", String(whipConfigData.universe).c_str(), 6, TYPE_NUMBER);
-  //wifiManager.addParameter(&custom_name);
+  // wifiManager.addParameter(&custom_name);
   wifiManager.addParameter(&custom_universe);
 
   wifiManager.setConfHostname(htmlencode(whipConfigData.name));
   wifiManager.setConfSSID(htmlencode(whipConfigData.ssid));
   wifiManager.setConfPSK(htmlencode(whipConfigData.psk));
 
+  flashLED(blue, 3);
+  lightUpLED(pink);
   CONSOLELN(F("started Portal"));
   static char ssid[33] = {0}; // 32 char max for SSIDs
   if (strlen(whipConfigData.name) == 0)
@@ -241,6 +241,7 @@ bool startConfiguration()
 
   wifiManager.startConfigPortal(ssid);
   whipConfigData.universe = String(custom_universe.getValue()).toInt();
+  lightUpLED(black);
 
   // save the custom parameters to FS
   if (shouldSaveConfig)
@@ -256,21 +257,17 @@ bool startConfiguration()
 
 void onDmxFrame(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data)
 {
-  // read universe and put into the right part of the display buffer
-  uint8 red = data[0];
-  uint8 green = data[1];
-  uint8 blue = data[2];
+  //                         R,       G,        B
+  rgb_color artnet_color = {data[0], data[1], data[2]};
 
   Serial.print("Received artnet frame: R: ");
-  Serial.print(red);
+  Serial.print(artnet_color.red);
   Serial.print(" G: ");
-  Serial.print(green);
+  Serial.print(artnet_color.green);
   Serial.print(" B: ");
-  Serial.println(blue);
+  Serial.println(artnet_color.blue);
 
-  analogWrite(pwmPinRed, red);
-  analogWrite(pwmPinGreen, green);
-  analogWrite(pwmPinBlue, blue);
+  writeColor(artnet_color);
 }
 
 bool shouldStartConfig(bool validConf)
@@ -295,6 +292,7 @@ bool shouldStartConfig(bool validConf)
   bool _dblreset = drd.detectDoubleReset();
   if (_dblreset)
     CONSOLELN(F("\nDouble Reset detected"));
+  flashLED(blue, 2);
 
   bool _wifiCred = !(whipConfigData.ssid.isEmpty() || whipConfigData.psk.isEmpty());
 
@@ -318,6 +316,7 @@ bool connectBackupCredentials()
 {
   WiFi.disconnect();
   WiFi.mode(WIFI_STA); // suggestion that MQTT connection failures can happen if WIFI mode isn't STA.
+  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
   if (strlen(whipConfigData.name) != 0)
     WiFi.hostname(whipConfigData.name); // Set DNS hostname
 
@@ -371,7 +370,8 @@ void setup()
   // to make sure we wake up with STA but AP
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
-  WiFi.hostname(whipConfigData.name); 
+  WiFi.hostname(whipConfigData.name);
+  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
   WiFi.begin(whipConfigData.ssid.c_str(), whipConfigData.psk.c_str());
 
   if (!WiFi.isConnected())
@@ -414,15 +414,15 @@ void setup()
 
   ESP.wdtDisable();
   ESP.wdtEnable(1000);
-  // ConnectWifi();
 
-  pinMode(pwmPinRed, OUTPUT);
-  pinMode(pwmPinGreen, OUTPUT);
-  pinMode(pwmPinBlue, OUTPUT);
+  pinMode(led_pins.red, OUTPUT);
+  pinMode(led_pins.green, OUTPUT);
+  pinMode(led_pins.blue, OUTPUT);
 
   // artnet.begin();
   // this will be called for each packet received
   CONSOLELN(F("Starting ArtNet"));
+  flashLED(green, 4);
   artnet.setArtDmxCallback(onDmxFrame);
   artnet.begin();
 }

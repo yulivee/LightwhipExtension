@@ -1,7 +1,0 @@
-#ifndef _config_h
-#define _config_h
-
-const char* ssid = "";
-const char* password = ""; 
-
-#endif
