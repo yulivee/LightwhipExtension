@@ -1,13 +1,14 @@
 #include "Globals.h"
-extern "C"{
-  #include <RGBColor.h>
+extern "C"
+{
+#include <RGBColor.h>
 }
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include "DoubleResetDetector.h" // https://github.com/datacute/DoubleResetDetector
 #include <ArtnetWifi.h>
 #include "WiFiManagerKT.h"
-//#include "config.h"
+// #include "config.h"
 #include <ArduinoJson.h> //https://github.com/bblanchon/ArduinoJson
 #include <FS.h>          //this needs to be first
 #include <LittleFS.h>
@@ -16,17 +17,56 @@ extern "C"{
 ArtnetWifi artnet;
 
 //                   R,  G,  B
-rgb_pin led_pins = {D5, D6, D7};
-
-/*
-int pwmPinRed = D5;
-int pwmPinGreen = D6;
-int pwmPinBlue = D7;
-*/
+rgb_pin led_pins = {D7, D6, D5};
 
 bool shouldSaveConfig = false;
 DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
 iData whipConfigData;
+bool wifiDisconnected = true;
+
+void printMac(byte *mac)
+{
+  Serial.print("MAC: ");
+  Serial.print(mac[0], HEX);
+  Serial.print(":");
+  Serial.print(mac[1], HEX);
+  Serial.print(":");
+  Serial.print(mac[2], HEX);
+  Serial.print(":");
+  Serial.print(mac[3], HEX);
+  Serial.print(":");
+  Serial.print(mac[4], HEX);
+  Serial.print(":");
+  Serial.println(mac[5], HEX);
+}
+
+void printWifiInformation()
+{
+  byte mac[6];
+  WiFiMode_t mode = WiFi.getMode();
+  Serial.println();
+  Serial.print(F("Mode: "));
+  Serial.print(mode);
+  Serial.print(", ");
+
+  WiFiPhyMode_t phyMode = WiFi.getPhyMode();
+  Serial.print(F("PhyMode: "));
+  Serial.print(phyMode);
+  Serial.print(", ");
+
+  wl_status_t status = WiFi.status();
+  Serial.print(F("Status: "));
+  Serial.print(status);
+  Serial.print(", ");
+
+  WiFiSleepType_t sleepMode = WiFi.getSleepMode();
+  Serial.print(F("SleepMode: "));
+  Serial.print(sleepMode);
+  Serial.print(", ");
+
+  WiFi.macAddress(mac);
+  printMac(mac);
+}
 
 void writeColor(rgb_color color)
 {
@@ -39,8 +79,8 @@ void flashLED(led_color color, int flashes)
 {
 
   rgb_color rgbcolor = lookup_color(color);
-  //rgb_color rgb_black = lookup_color(black);
-  rgb_color rgb_black = {0,0,0};
+  // rgb_color rgb_black = lookup_color(black);
+  rgb_color rgb_black = {0, 0, 0};
 
   for (int i = 0; i < flashes; i++)
   {
@@ -55,7 +95,7 @@ void lightUpLED(led_color color)
 {
   rgb_color rgbcolor = lookup_color(color);
   writeColor(rgbcolor);
-} 
+}
 
 bool formatLittleFS()
 {
@@ -68,15 +108,16 @@ bool formatLittleFS()
 
 bool saveConfig()
 {
-  CONSOLE(F("saving config...\n"));
+  CONSOLELN(F("saving config..."));
 
   // if LittleFS is not usable
   if (!LittleFS.begin())
   {
-    Serial.println("Failed to mount file system");
+    CONSOLELN(F("Failed to mount file system"));
     if (!formatLittleFS())
     {
-      Serial.println("Failed to format file system - hardware issues!");
+
+      CONSOLELN(F("Failed to format file system - hardware issues!"));
       return false;
     }
   }
@@ -259,14 +300,14 @@ void onDmxFrame(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *d
 {
   //                         R,       G,        B
   rgb_color artnet_color = {data[0], data[1], data[2]};
-
+#if DEBUG
   Serial.print("Received artnet frame: R: ");
   Serial.print(artnet_color.red);
   Serial.print(" G: ");
   Serial.print(artnet_color.green);
   Serial.print(" B: ");
   Serial.println(artnet_color.blue);
-
+#endif
   writeColor(artnet_color);
 }
 
@@ -312,11 +353,18 @@ bool shouldStartConfig(bool validConf)
   }
 }
 
+void SetWifiParameters()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
+  WiFi.persistent(false);
+}
+
 bool connectBackupCredentials()
 {
   WiFi.disconnect();
-  WiFi.mode(WIFI_STA); // suggestion that MQTT connection failures can happen if WIFI mode isn't STA.
-  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
+  SetWifiParameters();
   if (strlen(whipConfigData.name) != 0)
     WiFi.hostname(whipConfigData.name); // Set DNS hostname
 
@@ -328,6 +376,7 @@ bool connectBackupCredentials()
     delay(300);
     wait++;
     CONSOLE(F("."));
+    flashLED(red, 1);
     if (wait > 50)
       break;
   }
@@ -338,17 +387,21 @@ bool connectBackupCredentials()
   CONSOLE(F("ms, result "));
   CONSOLELN(WiFi.status());
 
-  if (WiFi.status() == WL_DISCONNECTED)
+  if (WiFi.status() == WL_DISCONNECTED || WiFi.status() == WL_CONNECT_FAILED)
+  {
     return false;
+  }
   else
+  {
+    CONSOLE(F("IP: "));
+    CONSOLELN(WiFi.localIP());
     return true;
+  }
 }
 
 void setup()
 {
   Serial.begin(115200);
-
-  delay(5000);
 
   bool validConf = readConfig();
   if (!validConf)
@@ -368,46 +421,58 @@ void setup()
   }
 
   // to make sure we wake up with STA but AP
-  WiFi.mode(WIFI_STA);
-  WiFi.persistent(false);
+  SetWifiParameters();
+
   WiFi.hostname(whipConfigData.name);
-  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
   WiFi.begin(whipConfigData.ssid.c_str(), whipConfigData.psk.c_str());
 
-  if (!WiFi.isConnected())
+  printWifiInformation();
+
+  while (wifiDisconnected)
   {
-    unsigned long startedAt = millis();
-    uint8_t wait = 0;
-    while (!WiFi.isConnected())
+
+    if (!WiFi.isConnected())
     {
-      delay(300);
-      wait++;
-      CONSOLE(F("."));
-      if (wait > 50)
-        break;
+      unsigned long startedAt = millis();
+      uint8_t wait = 0;
+      while (!WiFi.isConnected())
+      {
+        delay(300);
+        wait++;
+        CONSOLE(F("."));
+        flashLED(red, 1);
+        if (wait > 50)
+          break;
+      }
+      CONSOLELN();
+      auto waited = (millis() - startedAt);
+      CONSOLE(F("After waiting "));
+      CONSOLE(waited);
+      CONSOLE(F("ms, result "));
+      CONSOLELN(WiFi.status());
     }
-    CONSOLELN();
-    auto waited = (millis() - startedAt);
-    CONSOLE(F("After waiting "));
-    CONSOLE(waited);
-    CONSOLE(F("ms, result "));
-    CONSOLELN(WiFi.status());
-  }
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    CONSOLE(F("IP: "));
-    CONSOLELN(WiFi.localIP());
-  }
-  else
-  {
-    CONSOLELN(F("Failed to connect -> trying to restore connection..."));
-    if (connectBackupCredentials())
-      CONSOLE(F("   -> Connection restored!"));
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      CONSOLE(F("IP: "));
+      CONSOLELN(WiFi.localIP());
+      wifiDisconnected = false;
+    }
     else
     {
-      CONSOLE(F("   -> Failed to restore connection..."));
-      WiFi.disconnect();
+      CONSOLELN(F("Failed to connect -> trying to restore connection..."));
+      if (connectBackupCredentials())
+      {
+        CONSOLE(F("   -> Connection restored!"));
+        wifiDisconnected = false;
+      }
+      else
+      {
+        CONSOLE(F("   -> Failed to restore connection..."));
+        WiFi.disconnect();
+        wifiDisconnected = true;
+      }
     }
+    printWifiInformation();
   }
 
   CONSOLELN();
@@ -423,6 +488,7 @@ void setup()
   // this will be called for each packet received
   CONSOLELN(F("Starting ArtNet"));
   flashLED(green, 4);
+
   artnet.setArtDmxCallback(onDmxFrame);
   artnet.begin();
 }
@@ -431,5 +497,8 @@ void loop()
 {
   ESP.wdtFeed();
   // we call the read function inside the loop
-  artnet.read();
+  if (artnet.read() == 0)
+  {
+    delay(15); // on NOP small delay
+  }
 }

@@ -4,6 +4,7 @@ The ESP-03 has a 4 Mbit 25Q40BT part which allows for 512 KB of program space. O
 
 ## Flash Mode 
 To flash the ESP-03 connect the following:
+
 ![](fritzing-esp03-flash-mode.png)
 
 | ESP PIN    | FTDI Flasher |
@@ -35,6 +36,7 @@ upload_speed = 115200
 ## Normal Mode
 
 For normal operation of the ESP-03 connect the following:
+
 ![](fritzing-esp03-normal-mode.png)
 
 | ESP PIN    | FTDI Flasher    |
@@ -46,3 +48,7 @@ For normal operation of the ESP-03 connect the following:
 | CH_PD / EN | VCC             |
 | GPIO 0     | floating or VCC |
 | GPIO 15    | GND             |
+
+## Operation
+
+The ESP 03 needs stable 3.3V to work. The voltage delivered by the flasher is not sufficient for wireless operation and will result in very weird connection errors, because the chip can get a brown-out while trying to connect to the wireless LAN. Use an additional 3.3V power supply.
