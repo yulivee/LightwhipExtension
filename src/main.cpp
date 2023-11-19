@@ -3,18 +3,25 @@ extern "C"
 {
 #include <RGBColor.h>
 }
+#include "WiFiManagerKT.h"
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include "DoubleResetDetector.h" // https://github.com/datacute/DoubleResetDetector
-#include <ArtnetWifi.h>
-#include "WiFiManagerKT.h"
+
+// #include <ArtnetWifi.h>
+#include <ESPAsyncE131.h>
+
 // #include "config.h"
 #include <ArduinoJson.h> //https://github.com/bblanchon/ArduinoJson
 #include <FS.h>          //this needs to be first
 #include <LittleFS.h>
 
 // Art-Net settings
-ArtnetWifi artnet;
+// ArtnetWifi artnet;
+#define UNIVERSE 1       // First DMX Universe to listen for
+#define UNIVERSE_COUNT 1 // Total number of Universes to listen for, starting at UNIVERSE
+
+ESPAsyncE131 e131(UNIVERSE_COUNT);
 
 //                   R,  G,  B
 rgb_pin led_pins = {D7, D6, D5};
@@ -299,7 +306,7 @@ bool startConfiguration()
 void onDmxFrame(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data)
 {
   //                         R,       G,        B
-  rgb_color artnet_color = {data[0], data[1], data[2]};
+  rgb_color artnet_color = {data[1], data[2], data[3]};
 #if DEBUG
   Serial.print("Received artnet frame: R: ");
   Serial.print(artnet_color.red);
@@ -489,16 +496,39 @@ void setup()
   CONSOLELN(F("Starting ArtNet"));
   flashLED(green, 4);
 
-  artnet.setArtDmxCallback(onDmxFrame);
-  artnet.begin();
+  // Choose one to begin listening for E1.31 data
+  // if (e131.begin(E131_UNICAST))                               // Listen via Unicast
+  if (e131.begin(E131_MULTICAST, UNIVERSE, UNIVERSE_COUNT)) // Listen via Multicast
+    Serial.println(F("Listening for data..."));
+  else
+    Serial.println(F("*** e131.begin failed ***"));
+
+  // artnet.setArtDmxCallback(onDmxFrame);
+  // artnet.begin();
 }
 
 void loop()
 {
   ESP.wdtFeed();
   // we call the read function inside the loop
-  if (artnet.read() == 0)
+
+  if (!e131.isEmpty())
+  {
+    e131_packet_t packet;
+    e131.pull(&packet); // Pull packet from ring buffer
+#if DEBUG
+    Serial.printf("Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
+                  htons(packet.universe),                 // The Universe for this packet
+                  htons(packet.property_value_count) - 1, // Start code is ignored, we're interested in dimmer data
+                  e131.stats.num_packets,                 // Packet counter
+                  e131.stats.packet_errors,               // Packet error counter
+                  packet.property_values[1]);             // Dimmer data for Channel 1
+#endif
+    onDmxFrame(htons(packet.universe), htons(packet.property_value_count) - 1, htons(packet.sequence_number), packet.property_values);
+  }
+
+  /*if (artnet.read() == 0)
   {
     delay(15); // on NOP small delay
-  }
+  }*/
 }

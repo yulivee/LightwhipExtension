@@ -48,7 +48,7 @@ extern Ticker flasher;
 #define TEMP_KELVIN 2
 
 #ifndef DEBUG
-#define DEBUG true
+//#define DEBUG true
 #endif
 
 #define CONSOLE(...)                                                                                                   \
